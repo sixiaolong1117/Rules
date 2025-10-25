@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         微博综合屏蔽
 // @namespace    https://github.com/SIXiaolong1117/Rules
-// @version      0.3
+// @version      0.4
 // @description  屏蔽推荐、广告、荐读标签，屏蔽自定义关键词的微博内容，支持正则表达式
 // @license      MIT
 // @icon         https://weibo.com/favicon.ico
@@ -21,8 +21,7 @@
     const HIDDEN_TAGS = [
         '荐读',
         '广告',
-        '推荐',
-        'data:image/png;base64'
+        '推荐'
     ];
 
     // 默认关键词（可通过菜单修改）
@@ -619,30 +618,46 @@
         addBlockButtons();
 
         // 方法1: 通过推荐标签屏蔽
-        const tags = document.querySelectorAll('.wbpro-tag, [node-type="feed_list_top"]');
+        const tags = Array.from(document.querySelectorAll('*[class], [node-type="feed_list_top"]')).filter(el =>
+            Array.from(el.classList).some(c => c.startsWith('wbpro-tag')) || el.getAttribute('node-type') === 'feed_list_top'
+        );
         tags.forEach(tag => {
             const tagText = tag.textContent.trim();
-            const shouldHide = HIDDEN_TAGS.some(keyword => tagText.includes(keyword));
+            // 检查是否包含推荐标签
+            const matchesKeyword = HIDDEN_TAGS.some(keyword => tagText.includes(keyword));
+            // 检查是否包含 base64 图片
+            const img = tag.querySelector('img');
+            const hasBase64Img = img && img.src.startsWith('data:image/');
 
-            if (shouldHide) {
+            if (matchesKeyword || hasBase64Img) {
                 const panelMain = tag.closest('.woo-panel-main') || tag.closest('.WB_cardwrap');
+
                 if (panelMain && !panelMain.classList.contains('custom-hidden')) {
                     panelMain.classList.add('custom-hidden');
+
+                    // 获取原文文本
+                    let originalText = "";
+                    const contentEl = panelMain.querySelector('.Feed_body_3R0rO .wbpro-feed-content .detail_text_1U10O .detail_wbtext_4CRf9');
+                    if (contentEl) {
+                        originalText = contentEl.textContent.trim();
+                    }
 
                     // 创建提示元素
                     const message = document.createElement('div');
                     message.className = 'custom-hidden-message';
                     message.innerHTML = `
-                    <div class="message-content">
-                        🚫 已隐藏包含"${tagText}"标签的内容
-                    </div>
-                `;
-
-                    // 替换原始内容
+                        <div class="message-content">
+                            已隐藏包含"${tagText}"标签的内容 ${hasBase64Img ? "(含 Base64 图片，通常为广告)" : ""}
+                        </div>
+                    `;
                     panelMain.parentNode.replaceChild(message, panelMain);
 
-                    // 记录到控制台
-                    logHiddenContent('推荐标签', tagText, panelMain, `标签: ${tagText}`);
+                    // 控制台记录
+                    console.group("屏蔽内容信息");
+                    console.log("标签:", tagText);
+                    if (hasBase64Img) console.log("包含 Base64 图片");
+                    console.log("原文内容:", originalText);
+                    console.groupEnd();
                 }
             }
         });
