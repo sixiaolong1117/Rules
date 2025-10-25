@@ -378,6 +378,9 @@
 
             // 重新执行屏蔽
             hideContent();
+
+            // 强制更新页面布局
+            forceLayoutUpdate();
         });
 
         // 关闭按钮事件
@@ -483,17 +486,20 @@
                     GM_setValue(STORAGE_PREFIX + 'keywords', keywords);
 
                     // 显示成功提示
-                    showNotification(`✅ 已添加屏蔽词: "${selectedText}"`);
+                    showNotification(` 已添加屏蔽词: "${selectedText}"`);
 
                     // 立即执行一次匹配处理
                     hideContent();
 
-                    console.log(`✅ 快捷键添加屏蔽关键词: "${selectedText}"`);
+                    // 强制更新页面布局
+                    forceLayoutUpdate();
+
+                    console.log(` 快捷键添加屏蔽关键词: "${selectedText}"`);
                 } else {
-                    showNotification(`⚠️ 屏蔽词已存在: "${selectedText}"`);
+                    showNotification(` 屏蔽词已存在: "${selectedText}"`);
                 }
             } else {
-                showNotification('⚠️ 请先选择要屏蔽的文本');
+                showNotification(' 请先选择要屏蔽的文本');
             }
         }
     }
@@ -561,36 +567,18 @@
                     blockedIds.push(userId);
                     GM_setValue(STORAGE_PREFIX + 'blocked_ids', blockedIds);
 
-                    console.log(`✅ 已屏蔽用户: "${userName}" (ID: ${userId})`);
+                    console.log(` 已屏蔽用户: "${userName}" (ID: ${userId})`);
 
                     // 显示成功提示
                     showNotification(`已屏蔽用户: ${userName}`);
+
+                    // 调用 hideContent 统一处理屏蔽逻辑
+                    hideContent();
+
+                    // 强制更新页面布局
+                    forceLayoutUpdate();
                 } else {
                     showNotification(`用户 ${userName} 已在屏蔽列表中`);
-                    return;
-                }
-
-                // 隐藏该用户的所有微博
-                const panelMain = userNameElement.closest('.woo-panel-main') ||
-                      userNameElement.closest('.WB_cardwrap') ||
-                      userNameElement.closest('[mid]');
-                if (panelMain && !panelMain.classList.contains('custom-hidden')) {
-                    panelMain.classList.add('custom-hidden');
-
-                    // 创建提示元素
-                    const message = document.createElement('div');
-                    message.className = 'custom-hidden-message';
-                    message.innerHTML = `
-                    <div class="message-content">
-                        🚫 已手动屏蔽用户: ${userName} (ID: ${userId})
-                    </div>
-                `;
-
-                    // 替换原始内容
-                    panelMain.parentNode.replaceChild(message, panelMain);
-
-                    // 记录到控制台
-                    logHiddenContent('用户ID', userId, panelMain, `手动屏蔽用户: ${userName}`, '手动屏蔽');
                 }
             });
 
@@ -612,6 +600,25 @@
         }
     }
 
+    // 强制更新页面布局
+    function forceLayoutUpdate() {
+        // 方法1: 触发resize事件（最温和的方式）
+        window.dispatchEvent(new Event('resize'));
+
+        // 方法2: 使用requestAnimationFrame确保渲染完成
+        requestAnimationFrame(() => {
+            // 触发回流但不改变滚动位置
+            document.body.offsetHeight;
+        });
+
+        // 方法3: 微调一个隐藏元素来触发重排
+        const trigger = document.createElement('div');
+        trigger.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;';
+        document.body.appendChild(trigger);
+        trigger.offsetHeight;
+        document.body.removeChild(trigger);
+    }
+
     // 修改用户ID屏蔽逻辑
     function hideContent() {
         // 先添加屏蔽按钮
@@ -623,34 +630,46 @@
         );
         tags.forEach(tag => {
             const tagText = tag.textContent.trim();
-            // 检查是否包含推荐标签
+
+            // 检查是否包含隐藏关键词
             const matchesKeyword = HIDDEN_TAGS.some(keyword => tagText.includes(keyword));
+
             // 检查是否包含 base64 图片
             const img = tag.querySelector('img');
             const hasBase64Img = img && img.src.startsWith('data:image/');
 
             if (matchesKeyword || hasBase64Img) {
-                const panelMain = tag.closest('.woo-panel-main') || tag.closest('.WB_cardwrap');
+                // 修改：找到 Feed_body_3R0rO 元素
+                const feedBody = tag.closest('.woo-panel-main')?.querySelector('.Feed_body_3R0rO') ||
+                               tag.closest('.WB_cardwrap')?.querySelector('.Feed_body_3R0rO');
 
-                if (panelMain && !panelMain.classList.contains('custom-hidden')) {
-                    panelMain.classList.add('custom-hidden');
+                if (feedBody && !feedBody.classList.contains('custom-hidden')) {
+                    feedBody.classList.add('custom-hidden');
 
                     // 获取原文文本
                     let originalText = "";
-                    const contentEl = panelMain.querySelector('.Feed_body_3R0rO .wbpro-feed-content .detail_text_1U10O .detail_wbtext_4CRf9');
+                    const contentEl = feedBody.querySelector('.wbpro-feed-content .detail_text_1U10O .detail_wbtext_4CRf9');
                     if (contentEl) {
                         originalText = contentEl.textContent.trim();
                     }
 
-                    // 创建提示元素
+                    // 隐藏所有同级子元素
+                    const parent = feedBody.parentElement;
+                    Array.from(parent.children).forEach(child => {
+                        if (!child.classList.contains('custom-hidden-message')) {
+                            child.style.display = 'none';
+                        }
+                    });
+
+                    // 创建提示元素并添加到父容器
                     const message = document.createElement('div');
                     message.className = 'custom-hidden-message';
                     message.innerHTML = `
                         <div class="message-content">
-                            已隐藏包含"${tagText}"标签的内容 ${hasBase64Img ? "(含 Base64 图片，通常为广告)" : ""}
+                            已隐藏包含"${tagText}"标签的内容 ${hasBase64Img ? "(含 Base64 图片)" : ""}
                         </div>
                     `;
-                    panelMain.parentNode.replaceChild(message, panelMain);
+                    parent.appendChild(message);
 
                     // 控制台记录
                     console.group("屏蔽内容信息");
@@ -669,9 +688,10 @@
             const matchResult = isTextMatched(contentText);
 
             if (matchResult) {
-                const panelMain = feedContent.closest('.woo-panel-main') || feedContent.closest('.WB_cardwrap');
-                if (panelMain && !panelMain.classList.contains('custom-hidden')) {
-                    panelMain.classList.add('custom-hidden');
+                // 修改：找到 Feed_body_3R0rO 元素
+                const feedBody = feedContent.closest('.Feed_body_3R0rO');
+                if (feedBody && !feedBody.classList.contains('custom-hidden')) {
+                    feedBody.classList.add('custom-hidden');
 
                     let displayKeyword = matchResult.keyword;
                     let displayType = '关键词';
@@ -680,20 +700,26 @@
                         displayKeyword = `正则: ${matchResult.keyword}`;
                     }
 
-                    // 创建提示元素
+                    // 隐藏所有同级子元素
+                    const parent = feedBody.parentElement;
+                    Array.from(parent.children).forEach(child => {
+                        if (!child.classList.contains('custom-hidden-message')) {
+                            child.style.display = 'none';
+                        }
+                    });
+
+                    // 创建提示元素并添加到父容器
                     const message = document.createElement('div');
                     message.className = 'custom-hidden-message';
                     message.innerHTML = `
-                    <div class="message-content">
-                        🚫 已隐藏包含${displayType}"${displayKeyword}"的内容
-                    </div>
-                `;
-
-                    // 替换原始内容
-                    panelMain.parentNode.replaceChild(message, panelMain);
+                        <div class="message-content">
+                             已隐藏包含${displayType}"${displayKeyword}"的内容
+                        </div>
+                    `;
+                    parent.appendChild(message);
 
                     // 记录到控制台
-                    logHiddenContent('关键词', contentText.substring(0, 50) + '...', panelMain, `${matchResult.type}: ${matchResult.keyword}`);
+                    logHiddenContent('关键词', contentText.substring(0, 50) + '...', feedBody, `${matchResult.type}: ${matchResult.keyword}`);
                 }
             }
         });
@@ -711,29 +737,37 @@
             }
 
             if (userId && isUserIdBlocked(userId)) {
-                const panelMain = userLink.closest('.woo-panel-main') ||
-                      userLink.closest('.WB_cardwrap') ||
-                      userLink.closest('[mid]');
-                if (panelMain && !panelMain.classList.contains('custom-hidden')) {
-                    panelMain.classList.add('custom-hidden');
+                // 修改：找到 Feed_body_3R0rO 元素
+                const feedBody = userLink.closest('.Feed_body_3R0rO');
+                if (feedBody && !feedBody.classList.contains('custom-hidden')) {
+                    feedBody.classList.add('custom-hidden');
 
-                    // 创建提示元素
+                    // 隐藏所有同级子元素
+                    const parent = feedBody.parentElement;
+                    Array.from(parent.children).forEach(child => {
+                        if (!child.classList.contains('custom-hidden-message')) {
+                            child.style.display = 'none';
+                        }
+                    });
+
+                    // 创建提示元素并添加到父容器
                     const message = document.createElement('div');
                     message.className = 'custom-hidden-message';
                     message.innerHTML = `
-                    <div class="message-content">
-                        🚫 已隐藏屏蔽用户: ${userName} (ID: ${userId})
-                    </div>
-                `;
-
-                    // 替换原始内容
-                    panelMain.parentNode.replaceChild(message, panelMain);
+                        <div class="message-content">
+                             已隐藏屏蔽用户: ${userName} (ID: ${userId})
+                        </div>
+                    `;
+                    parent.appendChild(message);
 
                     // 记录到控制台
-                    logHiddenContent('用户ID', userId, panelMain, `屏蔽用户: ${userName}`);
+                    logHiddenContent('用户ID', userId, feedBody, `屏蔽用户: ${userName}`);
                 }
             }
         });
+
+        // 在函数最后添加：强制更新页面布局
+        forceLayoutUpdate();
     }
 
     // 使用防抖避免频繁执行
